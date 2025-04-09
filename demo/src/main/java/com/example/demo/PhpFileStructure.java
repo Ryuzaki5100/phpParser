@@ -12,7 +12,8 @@ public class PhpFileStructure {
     public List<PhpClassStructure> classes = new ArrayList<>();
     public List<PhpTraitStructure> traits = new ArrayList<>();
     public List<PhpEnumStructure> enums = new ArrayList<>();
-    public List<PhpVariableStructure> variables = new ArrayList<>(); // New field for variables
+    public List<PhpInterfaceStructure> interfaces = new ArrayList<>(); // Added for interfaces
+    public List<PhpVariableStructure> variables = new ArrayList<>();
     public List<PhpStatementStructure> statements = new ArrayList<>();
 
     public static class PhpUseStatement {
@@ -101,21 +102,25 @@ public class PhpFileStructure {
         public String docComment = "";
     }
 
-    // New class for tracking variables
+    public static class PhpInterfaceStructure {
+        public String name = "";
+        public String docComment = "";
+        public List<PhpMethodStructure> methods = new ArrayList<>();
+    }
+
     public static class PhpVariableStructure {
         public String name = "";
-        public String inferredType = ""; // e.g., from PHPDoc or instantiation
-        public List<String> methodCalls = new ArrayList<>(); // Methods called on this variable
+        public String inferredType = "";
+        public List<String> methodCalls = new ArrayList<>();
         public String docComment = "";
     }
 
-    // Updated class for procedural statements
     public static class PhpStatementStructure {
-        public String type = ""; // e.g., "assignment", "method_call", "static_call", "if", "include"
-        public String content = ""; // Raw PHP code (optional, for reference)
-        public String targetVariable = ""; // For method calls or assignments
-        public String methodName = ""; // For method/static calls
-        public List<String> parameters = new ArrayList<>(); // Arguments for calls
+        public String type = "";
+        public String content = "";
+        public String targetVariable = "";
+        public String methodName = "";
+        public List<String> parameters = new ArrayList<>();
         public String docComment = "";
         public List<PhpStatementStructure> nestedStatements = new ArrayList<>();
     }

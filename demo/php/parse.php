@@ -10,7 +10,7 @@ use PhpParser\PrettyPrinter;
 class StructureVisitor extends NodeVisitorAbstract {
     private $structure;
     private $prettyPrinter;
-    private $variables = []; // Track variables and their usage
+    private $variables = [];
 
     public function __construct() {
         $this->structure = [
@@ -23,6 +23,7 @@ class StructureVisitor extends NodeVisitorAbstract {
             'classes' => [],
             'traits' => [],
             'enums' => [],
+            'interfaces' => [], // Added for interfaces
             'variables' => [],
             'statements' => []
         ];
@@ -30,22 +31,17 @@ class StructureVisitor extends NodeVisitorAbstract {
     }
 
     public function enterNode(Node $node) {
-        // Namespace
         if ($node instanceof Node\Stmt\Namespace_) {
             $this->structure['namespaces'][] = (string)$node->name;
             $this->addStatements($node->stmts);
-        }
-        // Use statements
-        elseif ($node instanceof Node\Stmt\Use_) {
+        } elseif ($node instanceof Node\Stmt\Use_) {
             foreach ($node->uses as $use) {
                 $this->structure['useStatements'][] = [
                     'fullyQualifiedName' => (string)$use->name,
                     'alias' => $use->alias ? (string)$use->alias->name : ''
                 ];
             }
-        }
-        // Include/Require
-        elseif ($node instanceof Node\Stmt\Include_ || $node instanceof Node\Stmt\Require_) {
+        } elseif ($node instanceof Node\Stmt\Include_ || $node instanceof Node\Stmt\Require_) {
             $this->structure['includes'][] = (string)$node->expr->value;
             $this->structure['statements'][] = [
                 'type' => 'include',
@@ -56,9 +52,7 @@ class StructureVisitor extends NodeVisitorAbstract {
                 'docComment' => $node->getDocComment() ? $node->getDocComment()->getText() : '',
                 'nestedStatements' => []
             ];
-        }
-        // Constants via define()
-        elseif ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && $node->name->toString() === 'define') {
+        } elseif ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && $node->name->toString() === 'define') {
             $args = $node->args;
             if (count($args) >= 2) {
                 $this->structure['constants'][] = [
@@ -76,9 +70,37 @@ class StructureVisitor extends NodeVisitorAbstract {
                 'docComment' => $node->getDocComment() ? $node->getDocComment()->getText() : '',
                 'nestedStatements' => []
             ];
-        }
-        // Class definitions
-        elseif ($node instanceof Node\Stmt\Class_) {
+        } elseif ($node instanceof Node\Stmt\Interface_) {
+            $interface = [
+                'name' => (string)$node->name,
+                'docComment' => $node->getDocComment() ? $node->getDocComment()->getText() : '',
+                'methods' => []
+            ];
+            foreach ($node->stmts as $stmt) {
+                if ($stmt instanceof Node\Stmt\ClassMethod) {
+                    $interface['methods'][] = [
+                        'name' => (string)$stmt->name,
+                        'returnType' => $stmt->returnType ? (string)$stmt->returnType : '',
+                        'visibility' => $this->getVisibility($stmt),
+                        'isStatic' => $stmt->isStatic(),
+                        'isAbstract' => $stmt->isAbstract(),
+                        'isFinal' => $stmt->isFinal(),
+                        'parameters' => array_map(function ($param) {
+                            return [
+                                'name' => (string)$param->var->name,
+                                'typeHint' => $param->type ? (string)$param->type : '',
+                                'defaultValue' => $param->default ? var_export($param->default->value, true) : '',
+                                'isPassedByReference' => $param->byRef,
+                                'isVariadic' => $param->variadic
+                            ];
+                        }, $stmt->params),
+                        'body' => $stmt->stmts ? $this->prettyPrinter->prettyPrint($stmt->stmts) : '',
+                        'docComment' => $stmt->getDocComment() ? $stmt->getDocComment()->getText() : ''
+                    ];
+                }
+            }
+            $this->structure['interfaces'][] = $interface;
+        } elseif ($node instanceof Node\Stmt\Class_) {
             $class = [
                 'name' => (string)$node->name,
                 'docComment' => $node->getDocComment() ? $node->getDocComment()->getText() : '',
@@ -92,10 +114,44 @@ class StructureVisitor extends NodeVisitorAbstract {
                 'methods' => [],
                 'nestedClasses' => []
             ];
+            foreach ($node->stmts as $stmt) {
+                if ($stmt instanceof Node\Stmt\Property) {
+                    foreach ($stmt->props as $prop) {
+                        $class['properties'][] = [
+                            'name' => (string)$prop->name,
+                            'typeHint' => $stmt->type ? (string)$stmt->type : '',
+                            'visibility' => $this->getVisibility($stmt),
+                            'isStatic' => $stmt->isStatic(),
+                            'isReadonly' => $stmt->isReadonly(),
+                            'defaultValue' => $prop->default ? $this->prettyPrinter->prettyPrintExpr($prop->default) : '',
+                            'docComment' => $stmt->getDocComment() ? $stmt->getDocComment()->getText() : ''
+                        ];
+                    }
+                } elseif ($stmt instanceof Node\Stmt\ClassMethod) {
+                    $method = [
+                        'name' => (string)$stmt->name,
+                        'returnType' => $stmt->returnType ? (string)$stmt->returnType : '',
+                        'visibility' => $this->getVisibility($stmt),
+                        'isStatic' => $stmt->isStatic(),
+                        'isAbstract' => $stmt->isAbstract(),
+                        'isFinal' => $stmt->isFinal(),
+                        'parameters' => array_map(function ($param) {
+                            return [
+                                'name' => (string)$param->var->name,
+                                'typeHint' => $param->type ? (string)$param->type : '',
+                                'defaultValue' => $param->default ? var_export($param->default->value, true) : '',
+                                'isPassedByReference' => $param->byRef,
+                                'isVariadic' => $param->variadic
+                            ];
+                        }, $stmt->params),
+                        'body' => $stmt->stmts ? $this->prettyPrinter->prettyPrint($stmt->stmts) : '',
+                        'docComment' => $stmt->getDocComment() ? $stmt->getDocComment()->getText() : ''
+                    ];
+                    $class['methods'][] = $method;
+                }
+            }
             $this->structure['classes'][] = $class;
-        }
-        // Function definitions
-        elseif ($node instanceof Node\Stmt\Function_) {
+        } elseif ($node instanceof Node\Stmt\Function_) {
             $func = [
                 'name' => (string)$node->name,
                 'returnType' => $node->returnType ? (string)$node->returnType : '',
@@ -113,9 +169,7 @@ class StructureVisitor extends NodeVisitorAbstract {
                 'docComment' => $node->getDocComment() ? $node->getDocComment()->getText() : ''
             ];
             $this->structure['functions'][] = $func;
-        }
-        // Procedural statements
-        elseif ($node instanceof Node\Stmt\Expression) {
+        } elseif ($node instanceof Node\Stmt\Expression) {
             if ($node->expr instanceof Node\Expr\Assign) {
                 $varName = $node->expr->var instanceof Node\Expr\Variable ? (string)$node->expr->var->name : '';
                 $this->addVariable($varName, $node);
@@ -168,9 +222,7 @@ class StructureVisitor extends NodeVisitorAbstract {
                     'nestedStatements' => []
                 ];
             }
-        }
-        // Control structures (if)
-        elseif ($node instanceof Node\Stmt\If_) {
+        } elseif ($node instanceof Node\Stmt\If_) {
             $this->structure['statements'][] = [
                 'type' => 'if',
                 'content' => $this->prettyPrinter->prettyPrint([$node]),
@@ -181,6 +233,13 @@ class StructureVisitor extends NodeVisitorAbstract {
                 'nestedStatements' => $this->collectNestedStatements($node->stmts)
             ];
         }
+    }
+
+    private function getVisibility($node) {
+        if ($node->isPublic()) return 'public';
+        if ($node->isProtected()) return 'protected';
+        if ($node->isPrivate()) return 'private';
+        return 'public'; // Default
     }
 
     private function addVariable(string $name, Node $node, string $methodCall = '') {
