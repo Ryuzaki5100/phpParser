@@ -5,6 +5,7 @@ COPY demo/src ./src
 COPY demo/.mvn ./.mvn
 COPY demo/mvnw .
 COPY demo/mvnw.cmd .
+RUN chmod +x /app/mvnw
 RUN ./mvnw clean install -e -X
 RUN ls -la target/
 
